@@ -1,0 +1,4 @@
+.hermes/.env
+.hermes/auth.json
+.hermes/sessions/
+.hermes/logs/

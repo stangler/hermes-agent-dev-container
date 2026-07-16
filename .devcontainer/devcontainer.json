@@ -1,0 +1,15 @@
+{
+  "name": "hermes-agent",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers/features/python:1": {}
+  },
+  "mounts": [
+    "source=hermes-agent-home,target=/home/vscode/.hermes,type=volume"
+  ],
+  "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.hermes && curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
+  "remoteEnv": {
+    "HERMES_HOME": "/home/vscode/.hermes"
+  }
+}
