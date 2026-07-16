@@ -4,4 +4,4 @@
 .hermes/logs/
 
 .pnpm-store/
-/emdash-in_hermes-agent-dev-container
+emdash-in-hermes-agent-dev-container/

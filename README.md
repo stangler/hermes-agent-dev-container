@@ -147,8 +147,60 @@ terminal:
 | `⚠ Auxiliary title generation failed: Request timed out.` | セッションタイトル生成用の補助LLM呼び出しのタイムアウト | 動作に影響なし。気になる場合は`auxiliary.title_generation`に別の高速プロバイダを設定 |
 | `tirith security scanner enabled but not available` | tirithバイナリ未インストール | pattern matchingにフォールバック済み。厳格スキャンが必要なら別途`tirith`導入 |
 
+## Hermes Dashboard（Web UI）
+
+CLIと同じ機能をブラウザから使えるダッシュボード。
+
+### 1. web extra インストール
+
+デフォルトインストールにはHTTP stackが含まれないため追加が必要：
+
+```bash
+~/.hermes/bin/uv pip install -e ".[web]" --python ~/.hermes/hermes-agent/venv/bin/python
+```
+
+`~/.hermes/bin/uv`はPATHに含まれていないため、フルパス指定が必要。`--python`でHermes本体が使うvenv（`~/.hermes/hermes-agent/venv`）を明示的に指定する。
+
+### 2. port forward（任意）
+
+VS Codeが実行時に自動検出するため`devcontainer.json`への追記は必須ではないが、明示しておくと安定する：
+
+```json
+"forwardPorts": [9119]
+```
+
+### 3. 起動
+
+```bash
+hermes dashboard --host 0.0.0.0
+```
+
+- ループバック以外（`0.0.0.0`）にバインドする場合、認証必須（`--insecure`は非対応）。初回起動時に認証方式を聞かれる：
+  - **[1] Username & password** ← ローカルLAN用途はこちらを選択
+  - [2] OAuth via Nous Portal（`hermes dashboard register`が別途必要、今回のBYO構成には不要）
+- `1`を選び、ユーザー名・パスワードを設定する。
+
+### 4. アクセス
+
+VS Codeの`PORTS`タブに`9119`が自動転送される。表示されたURL、またはブラウザで`http://localhost:9119`を開く。
+
+## Hermes Desktop（GUIネイティブアプリ）について
+
+DevContainer内には直接インストールしない。Linux DevContainerはヘッドレスのため、GUIアプリをコンテナ内で動かすのは非実用的。
+
+利用したい場合はリモート接続方式で構成する：
+
+```
+Hermes Desktop (Windows native, GUI)
+  → WebSocket接続 →
+Hermes gateway (Devcontainer内で稼働)
+```
+
+Devcontainer側で`hermes gateway start`を起動しport forwardを設定、Windows側にHermes Desktopをインストールして「Remote Hermes」接続先を指定する。gatewayのポート番号・認証方式（OAuth vs username/password）は必要になったタイミングで別途確認。
+
 ## 既知の制約・注意点
 
 - `CODEROUTER_ALLOWED_HOSTS`はUserスコープ環境変数。新しいPowerShellウィンドウを開かないと反映されない。
 - `nim-qwen3-coder-480b`のvision対応は未確認。画像解析ツール使用時にエラーが出た場合は`auxiliary.vision`に別モデルを設定する。
 - CodeRouterのモデル名は`providers.yaml`の`name`キー（例: `nim-qwen3-coder-480b`）であり、実際のモデルID（`qwen/qwen3-next-80b-a3b-instruct`）とは異なる。Hermes側の`model.default`にはCodeRouterのprovider名を指定する。
+- Dashboardのweb extraはnamed volume内（`~/.hermes/hermes-agent/venv`）にインストールされるため、volumeを削除しない限り再ビルド後も再インストール不要。
