@@ -2,3 +2,6 @@
 .hermes/auth.json
 .hermes/sessions/
 .hermes/logs/
+
+.pnpm-store/
+/emdash-in_hermes-agent-dev-container
