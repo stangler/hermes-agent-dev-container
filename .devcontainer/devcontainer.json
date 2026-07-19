@@ -7,10 +7,16 @@
   },
   "mounts": [
     "source=hermes-agent-home,target=/home/vscode/.hermes,type=volume"
+    // Ollamaのマウントは不要に
   ],
   "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.hermes && curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
   "remoteEnv": {
-    "HERMES_HOME": "/home/vscode/.hermes"
+    "HERMES_HOME": "/home/vscode/.hermes",
+    // WindowsネイティブOllamaを指す
+    "OLLAMA_API_BASE": "http://host.docker.internal:11434",
+    "OLLAMA_BASE_URL": "http://host.docker.internal:11434",   // Hermes用
+    "OLLAMA_HOST": "http://host.docker.internal:11434"
   },
-  "forwardPorts": [9119]
+  "forwardPorts": [9119],
+  // postStartCommand で ollama serve は不要
 }

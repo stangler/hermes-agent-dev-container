@@ -146,6 +146,9 @@ terminal:
 | CodeRouterに接続できない（そもそも到達しない） | `coderouter serve`が`127.0.0.1`にのみbindしている | `--host 0.0.0.0`を付けて起動 |
 | `⚠ Auxiliary title generation failed: Request timed out.` | セッションタイトル生成用の補助LLM呼び出しのタイムアウト | 動作に影響なし。気になる場合は`auxiliary.title_generation`に別の高速プロバイダを設定 |
 | `tirith security scanner enabled but not available` | tirithバイナリ未インストール | pattern matchingにフォールバック済み。厳格スキャンが必要なら別途`tirith`導入 |
+| `pnpm add -g @anthropic-ai/claude-code`後`claude --version`が`command not found` | `pnpm setup`未実行でグローバルbinがPATH外 | `pnpm setup && source ~/.bashrc`後に再インストール |
+| `claude --version`が`Error: claude native binary not installed.` | 非対話環境でpnpmのbuild確認プロンプトがスキップされ`postinstall`未実行 | `find ... -name install.cjs -path "*claude-code*"`で探し`node <パス>`を手動実行 |
+| Hermes経由で`claude -p`実行時`not logged in`エラー（ターミナル直接では成功） | Hermesの`terminal`ツールがANTHROPIC_*系環境変数をブロックリストでフィルタし子プロセスに渡さない | `claude-cr`ラッパースクリプト（環境変数を自プロセス内でexportしてから`claude`をexec）を作成しHermesからはそちらを呼ぶ |
 
 ## Hermes Dashboard（Web UI）
 
@@ -183,6 +186,83 @@ hermes dashboard --host 0.0.0.0
 ### 4. アクセス
 
 VS Codeの`PORTS`タブに`9119`が自動転送される。表示されたURL、またはブラウザで`http://localhost:9119`を開く。
+
+## Claude Codeとの連携（仕様駆動開発）
+
+Hermes Agentが計画・監督・レビューを担当し、実装はClaude Code CLIに委譲する構成。HermesはClaude Code CLIをprint mode（`claude -p '...' --allowedTools 'Read,Edit' --max-turns N`）で`terminal`ツールから呼び出す。
+
+### 1. Claude Code CLIをHermesコンテナ内にインストール
+
+Devcontainer本体（Node.js 22+が必要）にpnpm経由でインストールする：
+
+```bash
+pnpm add -g @anthropic-ai/claude-code
+```
+
+初回は`pnpm setup`が必要な場合がある（グローバルbinがPATHに無いエラーが出たら実行し、`source ~/.bashrc`で反映）：
+
+```bash
+pnpm setup
+source ~/.bashrc
+```
+
+**既知のバグ**：非対話環境でpnpmが`Choose which packages to build`の確認をスキップし、`postinstall`（ネイティブバイナリのダウンロード）が実行されないことがある（`claude --version`が`Error: claude native binary not installed.`で失敗）。その場合は該当パッケージの`install.cjs`を手動実行する：
+
+```bash
+find /home/vscode/.local/share/pnpm -name "install.cjs" -path "*claude-code*"
+node <上記で見つかったパス>
+```
+
+### 2. CodeRouter経由で動かす
+
+CodeRouterは`--host 0.0.0.0`で起動していれば、Devcontainer側から`ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY`環境変数でAnthropic互換エンドポイントとして利用できる：
+
+```bash
+export ANTHROPIC_BASE_URL="http://host.docker.internal:8088"
+export ANTHROPIC_API_KEY="dummy-key"   # CodeRouter側が実キーを保持するためダミーでよい
+```
+
+疎通確認：
+```bash
+curl http://host.docker.internal:8088/v1/models
+claude -p "動作確認" --max-turns 1
+```
+
+### 3. 【重要】Hermesの`terminal`ツール経由だと環境変数が届かない
+
+`~/.bashrc`や`~/.hermes/.env`に上記の環境変数を書いても、**Hermes Agentが`terminal`ツールでサブプロセスを起動する際に、LLMプロバイダー系の環境変数（`ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL`等）を意図的にブロックリスト（`_HERMES_PROVIDER_ENV_BLOCKLIST`、`tools/environments/local.py`）でフィルタリングして渡さない**仕様がある。これはHermes自身の認証情報が実行コマンド経由で漏洩するのを防ぐためのセキュリティ設計（`env_passthrough`機構でも、プロバイダー系変数は明示的にpassthrough拒否される）。
+
+**対処：ラッパースクリプトを作る**（Hermesから見て「継承された変数」ではなく「子プロセス自身が設定した変数」にすることでブロックリストを回避する）：
+
+```bash
+cat > ~/.local/bin/claude-cr << 'EOF'
+#!/bin/bash
+export ANTHROPIC_BASE_URL="http://host.docker.internal:8088"
+export ANTHROPIC_API_KEY="dummy-key"
+exec claude "$@"
+EOF
+chmod +x ~/.local/bin/claude-cr
+```
+
+Hermesからは`claude`ではなく`claude-cr`を呼ぶ：
+
+```
+terminal(command="claude-cr -p 'テスト' --allowedTools 'Read' --max-turns 1")
+```
+
+Hermesの`writing-plans`・`subagent-driven-development`等のskill内部で`claude -p`や`claude --print`を直接呼んでいる箇所があれば、`claude-cr`に統一しておくと安全（下記コマンドで確認できる）：
+
+```bash
+grep -rn 'claude -p\|claude --print' ~/.hermes/skills/
+```
+
+### 4. 仕様駆動開発の基本フロー
+
+1. `/writing-plans` … Hermesが機能ごとの実装計画（spec）を作成
+2. `/subagent-driven-development` … Hermesが計画をタスクに分解し、各タスクで`claude-cr -p '...'`を呼んでClaude Codeに実装させ、spec準拠＋コード品質をレビュー
+3. `/requesting-code-review` … 最終レビュー
+
+CodeRouterのプロファイル（`nim-first`、`sakura-test`等）は`coderouter serve --mode <profile>`で切り替え可能。Hermes自身が使うモデルとClaude Code呼び出し時に使わせたいモデルを分けたい場合は、別ポートで複数のCodeRouterインスタンスを起動し、`claude-cr`側のラッパー内でポートを指定する。
 
 ## Hermes Desktop（GUIネイティブアプリ）について
 

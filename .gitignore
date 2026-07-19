@@ -3,5 +3,4 @@
 .hermes/sessions/
 .hermes/logs/
 
-.pnpm-store/
-emdash-in-hermes-agent-dev-container/
+projects/
